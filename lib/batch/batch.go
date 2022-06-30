@@ -1,8 +1,11 @@
 package batch
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type user struct {
@@ -15,45 +18,15 @@ func getOne(id int64) user {
 }
 
 func getBatch(n int64, pool int64) (res []user) {
-	var wg sync.WaitGroup
-	var mtx sync.Mutex
-	var i int64
-	userChan := make(chan user, pool)
-
-	for i = 0; i < n; i++ {
-		wg.Add(1)
-		go func(id int64, wg *sync.WaitGroup, uc *chan user, mtx *sync.Mutex) {
-			defer wg.Done()
-			userChan <- getOne(id)
-			mtx.Lock()
-			res = append(res, <-*uc)
-			mtx.Unlock()
-		}(i, &wg, &userChan, &mtx)
+	var mu sync.Mutex
+	errG, _ := errgroup.WithContext(context.Background())
+	errG.SetLimit(pool)
+	for i := n - 1; i >= 0; i-- {
+		errG.Go(func(mu *sync.Mutex, id int64) {
+			mu.Lock()
+			res = append(res, getOne(id))
+			mu.Unlock()
+		}(&mu, i))
 	}
-
-	wg.Wait()
-
-	return res
-}
-
-func GetBatch(n int64, pool int64) (res []user) {
-	var wg sync.WaitGroup
-	var mtx sync.Mutex
-	var i int64
-	userChan := make(chan user, pool)
-
-	for i = 0; i < n; i++ {
-		wg.Add(1)
-		go func(id int64, wg *sync.WaitGroup, uc chan user, mtx *sync.Mutex) {
-			defer wg.Done()
-			userChan <- getOne(id)
-			mtx.Lock()
-			res = append(res, <-uc)
-			mtx.Unlock()
-		}(i, &wg, userChan, &mtx)
-	}
-
-	wg.Wait()
-
 	return res
 }
